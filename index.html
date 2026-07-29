@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>24/7 Universal Downloader</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background-color: #0f0f12;
+      color: #f1f1f1;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .card {
+      background: #18181f;
+      padding: 32px;
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      width: 100%;
+      max-width: 520px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    h2 { margin-top: 0; text-align: center; color: #3ea6ff; font-size: 22px; }
+    p.sub { text-align: center; color: #aaa; font-size: 13px; margin-bottom: 24px; }
+    .input-box { display: flex; gap: 10px; }
+    input[type="text"] {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: #000;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: #3ea6ff; }
+    button {
+      padding: 12px 20px;
+      border-radius: 8px;
+      border: none;
+      background: #3ea6ff;
+      color: #000;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    .status { margin-top: 16px; text-align: center; font-size: 14px; min-height: 20px; }
+    .options {
+      margin-top: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      background: rgba(255,255,255,0.03);
+      padding: 16px;
+      border-radius: 10px;
+    }
+    select {
+      padding: 10px;
+      border-radius: 8px;
+      background: #000;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>⚡ Universal Downloader</h2>
+  <p class="sub">Paste YouTube, OneDrive, TikTok, or direct MP4/MP3 links below</p>
+
+  <div class="input-box">
+    <input type="text" id="urlInput" placeholder="Paste link here..." />
+    <button id="analyzeBtn">Analyze</button>
+  </div>
+
+  <div class="status" id="statusBox"></div>
+
+  <div class="options" id="optionsBox">
+    <div id="mediaTitle" style="font-weight: 600; font-size: 14px;"></div>
+    
+    <label style="font-size: 12px; color: #aaa; margin-top: 8px; display: block;">Format & Quality</label>
+    <select id="qualitySelect">
+      <option value="mp4-best">📹 MP4 - Maximum Quality</option>
+      <option value="mp4-1080">📹 MP4 - 1080p Full HD</option>
+      <option value="mp4-720">📹 MP4 - 720p HD</option>
+      <option value="mp3">🎵 MP3 Audio Only</option>
+    </select>
+
+    <button id="downloadBtn" style="margin-top: 10px; width: 100%;">Download Now</button>
+  </div>
+</div>
+
+<script>
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const urlInput = document.getElementById('urlInput');
+  const statusBox = document.getElementById('statusBox');
+  const optionsBox = document.getElementById('optionsBox');
+  const mediaTitle = document.getElementById('mediaTitle');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  let activeMedia = null;
+
+  analyzeBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    statusBox.innerHTML = '<span style="color: #3ea6ff;">🔍 Analyzing link...</span>';
+    optionsBox.style.display = 'none';
+
+    try {
+      const res = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
+      const data = await res.json();
+
+      if (data.error) throw new Error(data.error);
+
+      activeMedia = data;
+      mediaTitle.innerText = data.title;
+      optionsBox.style.display = 'flex';
+      statusBox.innerHTML = '';
+    } catch (err) {
+      statusBox.innerHTML = `<span style="color: #ff4e4e;">❌ ${err.message}</span>`;
+    }
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const url = urlInput.value.trim();
+    const val = document.getElementById('qualitySelect').value;
+
+    let format = 'mp4';
+    let quality = 'best';
+
+    if (val === 'mp3') {
+      format = 'mp3';
+    } else if (val.includes('1080')) {
+      quality = '1080';
+    } else if (val.includes('720')) {
+      quality = '720';
+    }
+
+    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${format}&quality=${quality}&title=${encodeURIComponent(activeMedia?.title || 'download')}`;
+    
+    statusBox.innerHTML = '<span style="color: #2ba640;">⚡ Download Started! Check your browser downloads.</span>';
+    window.location.href = downloadUrl;
+  });
+</script>
+
+</body>
+</html>
