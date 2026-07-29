@@ -1,12 +1,13 @@
 {
-  "name": "universal-media-downloader",
-  "version": "2.0.0",
-  "description": "24/7 Universal High-Speed Video Engine for YouTube, OneDrive, TikTok, and Direct Links",
+  "name": "youtube-downloader-app",
+  "version": "1.0.0",
+  "description": "Multi-engine YouTube video downloader backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "axios": "^1.7.0",
     "cors": "^2.8.5",
     "express": "^4.19.2"
   }
