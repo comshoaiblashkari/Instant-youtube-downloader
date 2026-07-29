@@ -16,7 +16,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 1. ROOT ROUTE (Fixes 'Cannot GET /')
+// 1. ROOT ROUTE (Serves UI or Status Page)
 app.get('/', (req, res) => {
   const rootIndex = path.join(__dirname, 'index.html');
   const publicIndex = path.join(__dirname, 'public', 'index.html');
@@ -60,14 +60,22 @@ app.get('/health', (req, res) => {
   res.json({ status: 'online', service: 'yt-dlp downloader engine', timestamp: new Date() });
 });
 
-// 3. GET VIDEO INFO ENDPOINT
+// 3. GET VIDEO INFO ENDPOINT (With YouTube Cloud IP Bypass)
 app.get('/api/info', (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) {
     return res.status(400).json({ error: 'Missing video URL parameter (?url=...)' });
   }
 
-  const ytdlp = spawn('yt-dlp', ['--dump-json', '--no-warnings', videoUrl]);
+  // Force yt-dlp to use Android/web client APIs to bypass cloud server IP blocks
+  const ytdlp = spawn('yt-dlp', [
+    '--dump-json',
+    '--no-warnings',
+    '--no-check-certificates',
+    '--extractor-args', 'youtube:player_client=android,web',
+    videoUrl
+  ]);
+
   let outputData = '';
   let errorData = '';
 
@@ -77,7 +85,10 @@ app.get('/api/info', (req, res) => {
   ytdlp.on('close', (code) => {
     if (code !== 0) {
       console.error('yt-dlp info error:', errorData);
-      return res.status(500).json({ error: 'Failed to fetch video information', details: errorData });
+      return res.status(500).json({ 
+        error: 'Failed to fetch video information', 
+        details: errorData || 'YouTube blocked the request or URL is invalid.' 
+      });
     }
     try {
       const info = JSON.parse(outputData);
@@ -100,7 +111,7 @@ app.get('/api/info', (req, res) => {
   });
 });
 
-// 4. DOWNLOAD VIDEO / AUDIO ENDPOINT
+// 4. DOWNLOAD VIDEO / AUDIO ENDPOINT (With YouTube Cloud IP Bypass)
 app.get('/api/download', (req, res) => {
   const videoUrl = req.query.url;
   const format = req.query.format || 'best';
@@ -110,7 +121,11 @@ app.get('/api/download', (req, res) => {
     return res.status(400).json({ error: 'Missing video URL parameter' });
   }
 
-  let args = ['-o', '-']; // Output stream directly to stdout
+  let args = [
+    '-o', '-',
+    '--no-check-certificates',
+    '--extractor-args', 'youtube:player_client=android,web'
+  ];
 
   if (type === 'audio') {
     args.push('-x', '--audio-format', 'mp3', videoUrl);
