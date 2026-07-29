@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Downloader</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .card { background: #1e293b; padding: 2rem; border-radius: 12px; width: 100%; max-width: 480px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    input { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; margin-bottom: 12px; }
+    button { width: 100%; padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .result { margin-top: 20px; padding: 12px; background: #0f172a; border-radius: 6px; word-break: break-all; }
+    .btn-download { display: inline-block; text-align: center; margin-top: 10px; background: #10b981; text-decoration: none; padding: 10px; border-radius: 6px; color: #fff; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>YouTube Video Extractor</h2>
+    <input type="text" id="videoUrl" placeholder="Paste YouTube Link (e.g. https://youtu.be/...)">
+    <button onclick="fetchVideo()">Get Download Link</button>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    async function fetchVideo() {
+      const url = document.getElementById('videoUrl').value;
+      const output = document.getElementById('output');
+      output.innerHTML = 'Fetching video formats...';
+
+      try {
+        const res = await fetch('/api/fetch-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          output.innerHTML = `
+            <div class="result">
+              <strong>${data.title}</strong><br>
+              <small>Engine: ${data.source}</small><br><br>
+              <a class="btn-download" href="${data.downloadUrl}" target="_blank" download>Download Video MP4</a>
+            </div>
+          `;
+        } else {
+          output.innerHTML = `<p style="color: #ef4444;">${data.error}</p>`;
+        }
+      } catch (err) {
+        output.innerHTML = `<p style="color: #ef4444;">Failed to connect to server.</p>`;
+      }
+    }
+  </script>
+</body>
+</html>
