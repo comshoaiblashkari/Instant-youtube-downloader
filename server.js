@@ -2,173 +2,152 @@ const express = require('express');
 const cors = require('cors');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
-const https = require('https');
-const http = require('http');
+const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
+// Enable CORS and JSON parsing
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Serve static files from root and public folders
+app.use(express.static(__dirname));
 app.use(express.static(path.join(__dirname, 'public')));
 
-let hasYtDlp = false;
-try {
-  execSync('yt-dlp --version', { stdio: 'ignore' });
-  hasYtDlp = true;
-  console.log('✅ System Check: yt-dlp is ready.');
-} catch (e) {
-  console.error('⚠️ System Warning: yt-dlp binary not detected on PATH.');
-}
+// 1. ROOT ROUTE (Fixes 'Cannot GET /')
+app.get('/', (req, res) => {
+  const rootIndex = path.join(__dirname, 'index.html');
+  const publicIndex = path.join(__dirname, 'public', 'index.html');
 
-function sanitizeFilename(str) {
-  return (str || 'download').replace(/[/\\?%*:|"<>]/g, '_').trim();
-}
+  if (fs.existsSync(rootIndex)) {
+    return res.sendFile(rootIndex);
+  } else if (fs.existsSync(publicIndex)) {
+    return res.sendFile(publicIndex);
+  } else {
+    // Fallback UI status page if index.html isn't present
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Universal Downloader Engine</title>
+        <style>
+          body { background: #0f0f12; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+          .card { background: #18181f; padding: 40px; border-radius: 16px; text-align: center; border: 1px solid rgba(255,255,255,0.1); max-width: 480px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+          h1 { color: #3ea6ff; font-size: 24px; margin-bottom: 12px; }
+          p { color: #aaa; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+          .badge { background: #2ba640; color: #fff; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 12px; display: inline-block; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="badge">● Server Online 24/7</div>
+          <h1>⚡ Downloader Server Active</h1>
+          <p>Your Docker backend is running smoothly on Render with <strong>yt-dlp</strong> and <strong>ffmpeg</strong> ready!</p>
+          <p>Your Chrome Extension and Web API are connected and ready to process video downloads.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+});
 
-function resolveRedirects(initialUrl, maxRedirects = 5) {
-  return new Promise((resolve, reject) => {
-    if (maxRedirects === 0) return reject(new Error('Too many redirects'));
-    
-    const client = initialUrl.startsWith('https') ? https : http;
-    client.get(initialUrl, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        let nextUrl = res.headers.location;
-        if (!nextUrl.startsWith('http')) {
-          const parsed = new URL(initialUrl);
-          nextUrl = `${parsed.protocol}//${parsed.host}${nextUrl}`;
-        }
-        return resolve(resolveRedirects(nextUrl, maxRedirects - 1));
-      }
-      resolve(initialUrl);
-    }).on('error', reject);
-  });
-}
+// 2. HEALTH CHECK ENDPOINT
+app.get('/health', (req, res) => {
+  res.json({ status: 'online', service: 'yt-dlp downloader engine', timestamp: new Date() });
+});
 
-/**
- * Metadata Endpoint
- */
+// 3. GET VIDEO INFO ENDPOINT
 app.get('/api/info', (req, res) => {
-  const targetUrl = req.query.url;
-  if (!targetUrl) return res.status(400).json({ error: 'URL parameter is required.' });
-
-  if (targetUrl.includes('onedrive') || targetUrl.includes('1drv.ms') || targetUrl.match(/\.(mp4|m4a|mp3|webm)(\?.*)?$/i)) {
-    return res.json({
-      title: 'Direct Cloud / Media File',
-      isDirect: true,
-      url: targetUrl
-    });
+  const videoUrl = req.query.url;
+  if (!videoUrl) {
+    return res.status(400).json({ error: 'Missing video URL parameter (?url=...)' });
   }
 
-  if (!hasYtDlp) {
-    return res.status(500).json({ error: 'yt-dlp is not available on server.' });
-  }
+  const ytdlp = spawn('yt-dlp', ['--dump-json', '--no-warnings', videoUrl]);
+  let outputData = '';
+  let errorData = '';
 
-  const args = [
-    '--dump-single-json',
-    '--no-warnings',
-    '--no-call-home',
-    '--geo-bypass',
-    targetUrl
-  ];
+  ytdlp.stdout.on('data', (data) => { outputData += data.toString(); });
+  ytdlp.stderr.on('data', (data) => { errorData += data.toString(); });
 
-  const process = spawn('yt-dlp', args);
-  let stdout = '';
-  let stderr = '';
-
-  process.stdout.on('data', chunk => { stdout += chunk; });
-  process.stderr.on('data', chunk => { stderr += chunk; });
-
-  process.on('close', code => {
+  ytdlp.on('close', (code) => {
     if (code !== 0) {
-      console.error('[Info Failed]:', stderr);
-      return res.status(500).json({ error: 'Failed to extract video info.' });
+      console.error('yt-dlp info error:', errorData);
+      return res.status(500).json({ error: 'Failed to fetch video information', details: errorData });
     }
     try {
-      const data = JSON.parse(stdout);
-      return res.json({
-        title: data.title || 'Downloaded Media',
-        uploader: data.uploader || 'Unknown',
-        duration: data.duration,
-        thumbnail: data.thumbnail,
-        isDirect: false
+      const info = JSON.parse(outputData);
+      res.json({
+        title: info.title,
+        thumbnail: info.thumbnail,
+        duration: info.duration,
+        uploader: info.uploader,
+        formats: info.formats ? info.formats.map(f => ({
+          format_id: f.format_id,
+          ext: f.ext,
+          resolution: f.resolution || `${f.width}x${f.height}`,
+          quality: f.format_note,
+          filesize: f.filesize || f.filesize_approx
+        })) : []
       });
     } catch (e) {
-      return res.status(500).json({ error: 'Error parsing metadata.' });
+      res.status(500).json({ error: 'Failed to parse video information' });
     }
   });
 });
 
-/**
- * Direct Stream Download Endpoint
- */
-app.get('/api/download', async (req, res) => {
-  const { url, format = 'mp4', quality = 'best', title } = req.query;
-  if (!url) return res.status(400).send('URL is required');
+// 4. DOWNLOAD VIDEO / AUDIO ENDPOINT
+app.get('/api/download', (req, res) => {
+  const videoUrl = req.query.url;
+  const format = req.query.format || 'best';
+  const type = req.query.type || 'video'; // 'video' or 'audio'
 
-  const cleanTitle = sanitizeFilename(title || 'media_download');
-  const isAudioOnly = format === 'mp3';
-  const extension = isAudioOnly ? 'mp3' : 'mp4';
+  if (!videoUrl) {
+    return res.status(400).json({ error: 'Missing video URL parameter' });
+  }
 
-  res.setHeader('Content-Disposition', `attachment; filename="${cleanTitle}.${extension}"`);
-  res.setHeader('Content-Type', isAudioOnly ? 'audio/mpeg' : 'video/mp4');
+  let args = ['-o', '-']; // Output stream directly to stdout
 
-  // Route 1: Direct File / OneDrive Stream
-  if (url.includes('onedrive') || url.includes('1drv.ms') || url.match(/\.(mp4|m4a|mp3)(\?.*)?$/i)) {
-    try {
-      let directUrl = url;
-      if (url.includes('onedrive.live.com')) {
-        directUrl = url.replace('/redir?', '/download?').replace('/embed?', '/download?');
-      }
-      
-      const finalUrl = await resolveRedirects(directUrl);
-      const client = finalUrl.startsWith('https') ? https : http;
+  if (type === 'audio') {
+    args.push('-x', '--audio-format', 'mp3', videoUrl);
+    res.header('Content-Type', 'audio/mpeg');
+    res.header('Content-Disposition', 'attachment; filename="audio.mp3"');
+  } else {
+    args.push('-f', format === 'best' ? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' : format, videoUrl);
+    res.header('Content-Type', 'video/mp4');
+    res.header('Content-Disposition', 'attachment; filename="video.mp4"');
+  }
 
-      client.get(finalUrl, (streamRes) => {
-        streamRes.pipe(res);
-      }).on('error', (err) => {
-        console.error('[Direct Stream Error]:', err.message);
-        if (!res.headersSent) res.status(500).send('Direct stream error');
-      });
-      return;
-    } catch (e) {
-      if (!res.headersSent) res.status(500).send('Link resolution failed');
-      return;
+  const ytdlp = spawn('yt-dlp', args);
+
+  ytdlp.stdout.pipe(res);
+
+  ytdlp.stderr.on('data', (data) => {
+    console.error(`yt-dlp download stderr: ${data}`);
+  });
+
+  ytdlp.on('close', (code) => {
+    if (code !== 0) {
+      console.error(`yt-dlp download process exited with code ${code}`);
     }
-  }
-
-  // Route 2: Video Services via yt-dlp
-  if (!hasYtDlp) {
-    return res.status(500).send('yt-dlp unavailable');
-  }
-
-  let formatSelector = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
-  if (isAudioOnly) {
-    formatSelector = 'bestaudio/best';
-  } else if (quality !== 'best') {
-    formatSelector = `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${quality}]/best`;
-  }
-
-  const args = [
-    '-o', '-',
-    '-f', formatSelector,
-    '--no-part',
-    '--no-buffer',
-    '--geo-bypass',
-    url
-  ];
-
-  const downloader = spawn('yt-dlp', args);
-  downloader.stdout.pipe(res);
-
-  downloader.stderr.on('data', (data) => {
-    console.log(`[Stream Status]: ${data.toString().trim()}`);
   });
 
   req.on('close', () => {
-    downloader.kill('SIGTERM');
+    ytdlp.kill();
   });
 });
 
+// START SERVER AND PERFORM SYSTEM CHECK
 app.listen(PORT, () => {
   console.log(`⚡ Downloader Engine running on port ${PORT}`);
+  try {
+    const ytdlpVersion = execSync('yt-dlp --version').toString().trim();
+    console.log(`✅ System Check: yt-dlp is ready (version ${ytdlpVersion}).`);
+  } catch (err) {
+    console.warn('⚠️ Warning: yt-dlp binary not found in PATH.');
+  }
 });
